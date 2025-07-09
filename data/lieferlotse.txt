@@ -1,0 +1,4 @@
+Lieferlotse is a tool designed to assist users in finding the best delivery options for their needs.
+It provides a user-friendly interface to compare various delivery services based on factors such as cost, speed, and reliability.
+Lieferlotse was founded in 2020 and is based in Hamburg, Germany.
+Lieferlotse's main products include a web application and a mobile app that allow users to easily access delivery options.
