@@ -38,7 +38,7 @@ def get_llm():
     bnb_config = BitsAndBytesConfig(
         load_in_4bit=True,
         bnb_4bit_use_double_quant=True,
-        bnb_4bit_compute_dtype=torch.float16,  # <– direkt anpassen
+        bnb_4bit_compute_dtype=torch.float16,
     )
 
     tok = AutoTokenizer.from_pretrained(LLM_MODEL_ID)
