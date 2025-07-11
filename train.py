@@ -1,26 +1,94 @@
 import logging
-import os
+from pathlib import Path
 
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain.document_loaders import (
+    DirectoryLoader,
+    TextLoader,
+    PyPDFLoader,
+)
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_qdrant import QdrantVectorStore
+from qdrant_client import QdrantClient
+from qdrant_client.models import Distance, VectorParams
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Konfiguration
+# ──────────────────────────────────────────────────────────────────────────────
+DATA_DIR        = Path("./data")
+QDRANT_PATH     = "./qdrant"
+COLLECTION_NAME = "knowledge_base"
 
-def train(data_path: str, vector_store) -> None:
-    """Train the model with the data in DATA_PATH."""
-    logging.info("Training the model with data from DATA_PATH")
+EMBED_MODEL_ID  = "intfloat/multilingual-e5-large-instruct"
+EMBED_DIM       = 1024
 
-    for file in os.listdir(data_path):
-        logging.info(f"Loading content from {file}")
-        with open(os.path.join(data_path, file), "r", encoding="utf-8") as f:
-            raw_text = f.read()
+CHUNK_SIZE      = 1_000
+CHUNK_OVERLAP   = 200
 
-        logging.info("Splitting document into chunks")
-        text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=100,
-            chunk_overlap=20,
-            length_function=len,
-            is_separator_regex=False,
-        )
-        chunks = text_splitter.create_documents([raw_text], metadatas=[{"source": file}])
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(levelname)s: %(message)s",
+)
 
-        logging.info(f"Creating embeddings for {len(chunks)} document chunks")
-        vector_store.add_documents(chunks)
+# ──────────────────────────────────────────────────────────────────────────────
+# Qdrant‑Collection anlegen
+# ──────────────────────────────────────────────────────────────────────────────
+client = QdrantClient(path=QDRANT_PATH)
+if not client.collection_exists(COLLECTION_NAME):
+    logging.info("Erstelle Qdrant-Collection »%s« …", COLLECTION_NAME)
+    client.create_collection(
+        collection_name=COLLECTION_NAME,
+        vectors_config=VectorParams(size=EMBED_DIM, distance=Distance.COSINE),
+    )
+
+store = QdrantVectorStore(
+    client=client,
+    collection_name=COLLECTION_NAME,
+    embedding=HuggingFaceEmbeddings(model_name=EMBED_MODEL_ID),
+)
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Dokumente laden
+# ──────────────────────────────────────────────────────────────────────────────
+logging.info("Lade Dokumente aus %s …", DATA_DIR)
+
+loaders = [
+    DirectoryLoader(str(DATA_DIR), glob="**/*.txt", loader_cls=TextLoader, show_progress=True),
+    DirectoryLoader(str(DATA_DIR), glob="**/*.pdf", loader_cls=PyPDFLoader, show_progress=True),
+]
+
+docs = []
+for loader in loaders:
+    docs.extend(loader.load())
+
+if not docs:
+    logging.warning("Keine Dokumente gefunden - Abbruch.")
+    exit(0)
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Chunking
+# ──────────────────────────────────────────────────────────────────────────────
+splitter = RecursiveCharacterTextSplitter(chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP)
+chunks   = splitter.split_documents(docs)
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Metadaten anreichern
+# ──────────────────────────────────────────────────────────────────────────────
+for chunk in chunks:
+    # Ursprungsdatei
+    source_file = Path(chunk.metadata.get("source", "unknown")).name
+
+    chunk.metadata.update(
+        {
+            "source":  source_file,
+            "snippet": chunk.page_content[:120].replace("\n", " "),
+            "page":    chunk.metadata.get("page", 1),
+        }
+    )
+
+# ──────────────────────────────────────────────────────────────────────────────
+# In den Vektor‑Store schreiben
+# ──────────────────────────────────────────────────────────────────────────────
+logging.info("Schreibe %s Chunks in Qdrant …", len(chunks))
+store.add_documents(chunks)
+logging.info("Fertig.")
