@@ -5,8 +5,7 @@ from langchain_core.runnables import RunnableParallel, RunnableLambda
 from langchain_huggingface import HuggingFaceEmbeddings, HuggingFacePipeline
 from langchain_qdrant import QdrantVectorStore
 from qdrant_client import QdrantClient
-from transformers import (AutoModelForCausalLM, AutoTokenizer,
-                          BitsAndBytesConfig, pipeline)
+from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -35,16 +34,10 @@ def get_qdrant() -> QdrantVectorStore:
 # LLM pipeline
 # ──────────────────────────────────────────────────────────────────────────────
 def get_llm():
-    bnb_config = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_use_double_quant=True,
-        bnb_4bit_compute_dtype=torch.float16,
-    )
-
     tok = AutoTokenizer.from_pretrained(LLM_MODEL_ID)
     mod = AutoModelForCausalLM.from_pretrained(
         LLM_MODEL_ID, device_map="auto",
-        quantization_config=bnb_config, torch_dtype=torch.float16
+        torch_dtype=torch.float16
     )
     pipe = pipeline(
         "text-generation", model=mod, tokenizer=tok,
@@ -92,7 +85,7 @@ def build_chain():
             "context": "\n\n".join(doc.page_content for doc in docs)
         }
     retrieval = RunnableLambda(enrich_with_context)
-    
+
     rag_chain = retrieval | RunnableParallel(
         answer = PROMPT | llm,
         sources = lambda d: pretty_sources(d["docs"]),

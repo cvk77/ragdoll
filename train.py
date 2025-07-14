@@ -1,7 +1,6 @@
 import logging
 from pathlib import Path
-
-from langchain.document_loaders import (
+from langchain_community.document_loaders import (
     DirectoryLoader,
     TextLoader,
     PyPDFLoader,
